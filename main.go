@@ -36,7 +36,8 @@ func main() {
 	// testInsert(coll)
 	// testUpdate(coll)
 	// testUpsert(coll)
-	testFindOneAndUpsert(coll)
+	// testFindOneAndUpsert(coll)
+	testFindOneAndUpdate(coll)
 
 	err = client.Disconnect(context.TODO())
 	if err != nil {
@@ -123,6 +124,37 @@ func testFindOneAndUpsert(coll *mongo.Collection) {
 	}
 
 	updateResult, err := database.FindOneAndUpsert(coll, updateData, filter)
+	if err != nil {
+		log.Panicln(err)
+	}
+
+	r, err := updateResult.DecodeBytes()
+	if err != nil {
+		log.Panicln(err)
+	}
+	fmt.Println(string(r))
+}
+
+func testFindOneAndUpdate(coll *mongo.Collection) {
+	// updateData := &database.DeliveryMessage{
+	// 	RequestID:       "request:1000",
+	// 	DeliveryCount:   100,
+	// 	UnDeliveryCount: 0,
+	// 	CreatedAt:       time.Now().Unix(),
+	// }
+
+	updateData := &database.DeliveryMessage{
+		DeliveryCount: 1,
+		UpdatedAt:     time.Now().Unix(),
+	}
+
+	filter := bson.D{
+		{
+			"requestId", "request:1000",
+		},
+	}
+
+	updateResult, err := database.FindOneAndUpdate(coll, updateData, filter)
 	if err != nil {
 		log.Panicln(err)
 	}

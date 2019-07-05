@@ -98,3 +98,35 @@ func FindOneAndUpsert(coll *mongo.Collection, doc *DeliveryMessage, filter bson.
 
 	return result, nil
 }
+
+// FindOneAndUpdate method
+func FindOneAndUpdate(coll *mongo.Collection, doc *DeliveryMessage, filter bson.D) (*mongo.SingleResult, error) {
+	bEncode, err := bson.Marshal(doc)
+	if err != nil {
+		return nil, err
+	}
+
+	var bDecode bson.M
+	err = bson.Unmarshal(bEncode, &bDecode)
+	if err != nil {
+		return nil, err
+	}
+
+	update := bson.M{
+		"$set": &bDecode,
+		"$inc": bson.M{
+			"callServiceCount": 1,
+		},
+	}
+
+	opt := &options.FindOneAndUpdateOptions{}
+	opt.SetUpsert(true)
+	opt.SetReturnDocument(options.After)
+
+	result := coll.FindOneAndUpdate(context.TODO(), filter, update, opt)
+	if result.Err() != nil {
+		return nil, result.Err()
+	}
+
+	return result, nil
+}
