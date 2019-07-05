@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
+	"github.com/iamgoangle/rabbitmq-mongodb/worker"
+
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/iamgoangle/rabbitmq-mongodb/database"
+	"github.com/iamgoangle/rabbitmq-mongodb/internal/rabbitmq"
 )
 
 const (
@@ -20,6 +20,7 @@ const (
 )
 
 func main() {
+	// TODO: mongo move to interface
 	clientOptions := options.Client().ApplyURI(mongoHost)
 	client, err := mongo.Connect(context.TODO(), clientOptions)
 	if err != nil {
@@ -32,136 +33,167 @@ func main() {
 	}
 	fmt.Println("Connected to MongoDB!")
 
-	coll := client.Database(db).Collection(collection)
-	// testInsert(coll)
-	// testUpdate(coll)
-	// testUpsert(coll)
-	// testFindOneAndUpsert(coll)
-	testFindOneAndUpdate(coll)
-
-	err = client.Disconnect(context.TODO())
+	// RabbitMQ
+	conn, err := rabbitmq.NewConnection(rabbitmq.ConfigConnection{
+		Type: "standalone",
+		Url:  "amqp://admin:1234@localhost:5672",
+	})
 	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Connection to MongoDB closed.")
-}
-
-func testInsert(coll *mongo.Collection) {
-	insertData := &database.DeliveryMessage{
-		RequestID:       "request:1234567",
-		DeliveryCount:   100,
-		UnDeliveryCount: 0,
-		CreatedAt:       time.Now().Unix(),
+		log.Fatalln("[main]: unable to connect RabbitMQ %+v", err)
 	}
 
-	insertResult, err := database.InsertMessage(coll, insertData)
-	if err != nil {
-		log.Panicln(err)
-	}
-	fmt.Println(insertResult)
-}
+	worker.SetupExchange(conn)
+	worker.SetupQueue(conn)
 
-func testUpdate(coll *mongo.Collection) {
-	updateData := &database.DeliveryMessage{
-		DeliveryCount: 50,
-		UpdatedAt:     time.Now().Unix(),
-	}
-
-	filter := bson.D{
-		{
-			"requestId", "request:1234567",
+	rbMqConfig := rabbitmq.ConfigConsumer{
+		Exchange: rabbitmq.ConfigExchange{
+			Type: rabbitmq.ExchangeTopic,
+			Name: "work.exchange",
+		},
+		Queue: rabbitmq.ConfigQueue{
+			Name: "work.queue",
+			Bind: rabbitmq.ConfigQueueBind{
+				ExchangeName: "work.exchange",
+				RoutingKey:   "work.routing.#",
+			},
 		},
 	}
 
-	updateResult, err := database.UpdateMessage(coll, updateData, filter)
+	consumer, err := rabbitmq.NewConsumer(conn, rbMqConfig)
 	if err != nil {
-		log.Panicln(err)
+		log.Panic(err)
 	}
-	fmt.Println(updateResult)
+
+	msgs, err := consumer.WorkerProcessor()
+	if err != nil {
+		log.Panic(err)
+	}
+
+	forever := make(chan bool)
+
+	// worker
+	w := worker.NewConsumer(client, db, collection, conn)
+	go w.Processor(msgs)
+
+	<-forever
 }
 
-func testUpsert(coll *mongo.Collection) {
-	// updateData := &database.DeliveryMessage{
-	// 	DeliveryCount: 1000,
-	// 	CreatedAt:     time.Now().Unix(),
-	// }
+// func testInsert(coll *mongo.Collection) {
+// 	insertData := &database.DeliveryMessage{
+// 		RequestID:       "request:1234567",
+// 		DeliveryCount:   100,
+// 		UnDeliveryCount: 0,
+// 		CreatedAt:       time.Now().Unix(),
+// 	}
 
-	updateData := &database.DeliveryMessage{
-		DeliveryCount: 500,
-		UpdatedAt:     time.Now().Unix(),
-	}
+// 	insertResult, err := database.InsertMessage(coll, insertData)
+// 	if err != nil {
+// 		log.Panicln(err)
+// 	}
+// 	fmt.Println(insertResult)
+// }
 
-	filter := bson.D{
-		{
-			"requestId", "request:555555",
-		},
-	}
+// func testUpdate(coll *mongo.Collection) {
+// 	updateData := &database.DeliveryMessage{
+// 		DeliveryCount: 50,
+// 		UpdatedAt:     time.Now().Unix(),
+// 	}
 
-	updateResult, err := database.UpsertMessage(coll, updateData, filter)
-	if err != nil {
-		log.Panicln(err)
-	}
-	fmt.Println(updateResult)
-}
+// 	filter := bson.D{
+// 		{
+// 			"requestId", "request:1234567",
+// 		},
+// 	}
 
-func testFindOneAndUpsert(coll *mongo.Collection) {
-	// updateData := &database.DeliveryMessage{
-	// 	RequestID:       "request:555551",
-	// 	DeliveryCount:   100,
-	// 	UnDeliveryCount: 0,
-	// 	CreatedAt:       time.Now().Unix(),
-	// }
+// 	updateResult, err := database.UpdateMessage(coll, updateData, filter)
+// 	if err != nil {
+// 		log.Panicln(err)
+// 	}
+// 	fmt.Println(updateResult)
+// }
 
-	updateData := &database.DeliveryMessage{
-		DeliveryCount: 500,
-		UpdatedAt:     time.Now().Unix(),
-	}
+// func testUpsert(coll *mongo.Collection) {
+// 	// updateData := &database.DeliveryMessage{
+// 	// 	DeliveryCount: 1000,
+// 	// 	CreatedAt:     time.Now().Unix(),
+// 	// }
 
-	filter := bson.D{
-		{
-			"requestId", "request:555551",
-		},
-	}
+// 	updateData := &database.DeliveryMessage{
+// 		DeliveryCount: 500,
+// 		UpdatedAt:     time.Now().Unix(),
+// 	}
 
-	updateResult, err := database.FindOneAndUpsert(coll, updateData, filter)
-	if err != nil {
-		log.Panicln(err)
-	}
+// 	filter := bson.D{
+// 		{
+// 			"requestId", "request:555555",
+// 		},
+// 	}
 
-	r, err := updateResult.DecodeBytes()
-	if err != nil {
-		log.Panicln(err)
-	}
-	fmt.Println(string(r))
-}
+// 	updateResult, err := database.UpsertMessage(coll, updateData, filter)
+// 	if err != nil {
+// 		log.Panicln(err)
+// 	}
+// 	fmt.Println(updateResult)
+// }
 
-func testFindOneAndUpdate(coll *mongo.Collection) {
-	// updateData := &database.DeliveryMessage{
-	// 	RequestID:       "request:1000",
-	// 	DeliveryCount:   100,
-	// 	UnDeliveryCount: 0,
-	// 	CreatedAt:       time.Now().Unix(),
-	// }
+// func testFindOneAndUpsert(coll *mongo.Collection) {
+// 	// updateData := &database.DeliveryMessage{
+// 	// 	RequestID:       "request:555551",
+// 	// 	DeliveryCount:   100,
+// 	// 	UnDeliveryCount: 0,
+// 	// 	CreatedAt:       time.Now().Unix(),
+// 	// }
 
-	updateData := &database.DeliveryMessage{
-		DeliveryCount: 1,
-		UpdatedAt:     time.Now().Unix(),
-	}
+// 	updateData := &database.DeliveryMessage{
+// 		DeliveryCount: 500,
+// 		UpdatedAt:     time.Now().Unix(),
+// 	}
 
-	filter := bson.D{
-		{
-			"requestId", "request:1000",
-		},
-	}
+// 	filter := bson.D{
+// 		{
+// 			"requestId", "request:555551",
+// 		},
+// 	}
 
-	updateResult, err := database.FindOneAndUpdate(coll, updateData, filter)
-	if err != nil {
-		log.Panicln(err)
-	}
+// 	updateResult, err := database.FindOneAndUpsert(coll, updateData, filter)
+// 	if err != nil {
+// 		log.Panicln(err)
+// 	}
 
-	r, err := updateResult.DecodeBytes()
-	if err != nil {
-		log.Panicln(err)
-	}
-	fmt.Println(string(r))
-}
+// 	r, err := updateResult.DecodeBytes()
+// 	if err != nil {
+// 		log.Panicln(err)
+// 	}
+// 	fmt.Println(string(r))
+// }
+
+// func testFindOneAndUpdate(coll *mongo.Collection) {
+// 	// updateData := &database.DeliveryMessage{
+// 	// 	RequestID:       "request:1000",
+// 	// 	DeliveryCount:   100,
+// 	// 	UnDeliveryCount: 0,
+// 	// 	CreatedAt:       time.Now().Unix(),
+// 	// }
+
+// 	updateData := &database.DeliveryMessage{
+// 		DeliveryCount: 1,
+// 		UpdatedAt:     time.Now().Unix(),
+// 	}
+
+// 	filter := bson.D{
+// 		{
+// 			"requestId", "request:1000",
+// 		},
+// 	}
+
+// 	updateResult, err := database.FindOneAndUpdate(coll, updateData, filter)
+// 	if err != nil {
+// 		log.Panicln(err)
+// 	}
+
+// 	r, err := updateResult.DecodeBytes()
+// 	if err != nil {
+// 		log.Panicln(err)
+// 	}
+// 	fmt.Println(string(r))
+// }
