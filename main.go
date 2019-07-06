@@ -2,50 +2,48 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 
 	"github.com/iamgoangle/rabbitmq-mongodb/worker"
 
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-
+	"github.com/iamgoangle/rabbitmq-mongodb/internal/mongodb"
 	"github.com/iamgoangle/rabbitmq-mongodb/internal/rabbitmq"
 )
 
 const (
-	mongoHost  = "mongodb://localhost:27017"
-	db         = "golf-message"
-	collection = "message_stat"
+	mongoHost = "mongodb://localhost:27017"
+	db        = "golf-message"
+
+	rabbitMqHost = "amqp://admin:1234@localhost:5672"
+	rabbitMqType = "standalone"
 )
 
 func main() {
-	// TODO: mongo move to interface
-	clientOptions := options.Client().ApplyURI(mongoHost)
-	client, err := mongo.Connect(context.TODO(), clientOptions)
-	if err != nil {
-		log.Fatal(err)
+	// MongoDB
+	mgConfig := mongodb.Config{
+		Host: mongoHost,
+		Db:   db,
 	}
-
-	err = client.Ping(context.TODO(), nil)
+	mgClient := mongodb.NewMongoClient(mgConfig)
+	err := mgClient.Ping(context.TODO(), nil)
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
-	fmt.Println("Connected to MongoDB!")
+	mgDBClient := mgClient.Database()
 
 	// RabbitMQ
-	conn, err := rabbitmq.NewConnection(rabbitmq.ConfigConnection{
-		Type: "standalone",
-		Url:  "amqp://admin:1234@localhost:5672",
+	rbConn, err := rabbitmq.NewConnection(rabbitmq.ConfigConnection{
+		Type: rabbitMqType,
+		Url:  rabbitMqHost,
 	})
 	if err != nil {
 		log.Fatalln("[main]: unable to connect RabbitMQ %+v", err)
 	}
 
-	worker.SetupExchange(conn)
-	worker.SetupQueue(conn)
+	worker.InitExchange(rbConn)
+	worker.InitQueue(rbConn)
 
-	rbMqConfig := rabbitmq.ConfigConsumer{
+	workQCfg := rabbitmq.ConfigConsumer{
 		Exchange: rabbitmq.ConfigExchange{
 			Type: rabbitmq.ExchangeTopic,
 			Name: "work.exchange",
@@ -59,7 +57,7 @@ func main() {
 		},
 	}
 
-	consumer, err := rabbitmq.NewConsumer(conn, rbMqConfig)
+	consumer, err := rabbitmq.NewConsumer(rbConn, workQCfg)
 	if err != nil {
 		log.Panic(err)
 	}
@@ -72,7 +70,7 @@ func main() {
 	forever := make(chan bool)
 
 	// worker
-	w := worker.NewConsumer(client, db, collection, conn)
+	w := worker.New(mgDBClient, rbConn)
 	go w.Processor(msgs)
 
 	<-forever

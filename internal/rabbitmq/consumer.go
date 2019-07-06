@@ -49,7 +49,7 @@ func NewConsumer(conn *amqp.Connection, config ConfigConsumer) (Consumer, error)
 		return nil, err
 	}
 
-	q, err := QueueDeclare(config.Queue, ch)
+	_, err = QueueDeclare(config.Queue, ch)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func NewConsumer(conn *amqp.Connection, config ConfigConsumer) (Consumer, error)
 		return nil, errors.New("[WorkerProcessor]: unable to create QoS")
 	}
 
-	err = QueueBind(config.Queue, ch, q)
+	err = QueueBind(config.Queue, ch)
 	if err != nil {
 		return nil, err
 	}

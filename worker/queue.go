@@ -7,7 +7,8 @@ import (
 	"github.com/streadway/amqp"
 )
 
-func SetupQueue(conn *amqp.Connection) {
+// InitQueue work and delay queue
+func InitQueue(conn *amqp.Connection) {
 	// create channel
 	ch, err := conn.Channel()
 	if err != nil {
@@ -24,39 +25,39 @@ func SetupQueue(conn *amqp.Connection) {
 			ExchangeName: "work.exchange",
 		},
 	}
-	q, err := rabbitmq.QueueDeclare(config, ch)
+	_, err = rabbitmq.QueueDeclare(config, ch)
 	if err != nil {
 		log.Fatalf("unable to create queue %+v", err)
 	}
 
 	// bind q with exchange
-	err = rabbitmq.QueueBind(config, ch, q)
+	err = rabbitmq.QueueBind(config, ch)
 	if err != nil {
 		log.Fatalf("unable to binding queue %+v", err)
 	}
 
 	// ===========================
-	// retry queue
+	// delay queue
 	// ===========================
-	argsRetryExchange := make(amqp.Table)
-	argsRetryExchange["x-dead-letter-exchange"] = "work.exchange"
-	argsRetryExchange["x-dead-letter-routing-key"] = "work.routing.retry"
-	argsRetryExchange["x-message-ttl"] = 5000
+	argsDelayQueue := make(amqp.Table)
+	argsDelayQueue["x-dead-letter-exchange"] = "work.exchange"
+	argsDelayQueue["x-dead-letter-routing-key"] = "work.routing.delay"
+	argsDelayQueue["x-message-ttl"] = 5000
 	config = rabbitmq.ConfigQueue{
-		Name: "retry.queue",
+		Name: "delay.queue",
 		Bind: rabbitmq.ConfigQueueBind{
-			RoutingKey:   "retry.routing",
-			ExchangeName: "retry.exchange",
+			RoutingKey:   "delay.routing",
+			ExchangeName: "delay.exchange",
 		},
-		Args: argsRetryExchange,
+		Args: argsDelayQueue,
 	}
-	q, err = rabbitmq.QueueDeclare(config, ch)
+	_, err = rabbitmq.QueueDeclare(config, ch)
 	if err != nil {
 		log.Fatalf("unable to create queue %+v", err)
 	}
 
 	// bind q with exchange
-	err = rabbitmq.QueueBind(config, ch, q)
+	err = rabbitmq.QueueBind(config, ch)
 	if err != nil {
 		log.Fatalf("unable to binding queue %+v", err)
 	}

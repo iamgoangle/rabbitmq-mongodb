@@ -7,7 +7,8 @@ import (
 	"github.com/streadway/amqp"
 )
 
-func SetupExchange(conn *amqp.Connection) {
+// InitExchange rabbitmq routing
+func InitExchange(conn *amqp.Connection) {
 	// create channel
 	ch, err := conn.Channel()
 	if err != nil {
@@ -24,10 +25,10 @@ func SetupExchange(conn *amqp.Connection) {
 		log.Fatalf("unable to create exchange %+v", err)
 	}
 
-	// retry exchange
+	// delay exchange
 	config = rabbitmq.ConfigExchange{
 		Type: rabbitmq.ExchangeTopic,
-		Name: "retry.exchange",
+		Name: "delay.exchange",
 	}
 	err = rabbitmq.ExchangeDeclare(config, ch)
 	if err != nil {
