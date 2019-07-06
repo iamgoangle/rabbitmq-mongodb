@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"log"
+	"time"
 
-	"github.com/iamgoangle/rabbitmq-mongodb/worker"
-
+	"github.com/iamgoangle/rabbitmq-mongodb/database"
 	"github.com/iamgoangle/rabbitmq-mongodb/internal/mongodb"
 	"github.com/iamgoangle/rabbitmq-mongodb/internal/rabbitmq"
+	"github.com/iamgoangle/rabbitmq-mongodb/worker"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 const (
@@ -30,6 +32,7 @@ func main() {
 		log.Panic(err)
 	}
 	mgDBClient := mgClient.Database()
+	msgDB := database.New(mgDBClient)
 
 	// RabbitMQ
 	rbConn, err := rabbitmq.NewConnection(rabbitmq.ConfigConnection{
@@ -70,128 +73,36 @@ func main() {
 	forever := make(chan bool)
 
 	// worker
-	w := worker.New(mgDBClient, rbConn)
+	w := worker.New(msgDB, rbConn)
 	go w.Processor(msgs)
 
 	<-forever
 }
 
-// func testInsert(coll *mongo.Collection) {
-// 	insertData := &database.DeliveryMessage{
-// 		RequestID:       "request:1234567",
-// 		DeliveryCount:   100,
-// 		UnDeliveryCount: 0,
-// 		CreatedAt:       time.Now().Unix(),
-// 	}
+func testFindOneAndUpsert(msgDB database.Message) {
+	// updateData := &database.DeliveryMessage{
+	// 	RequestID:       "1552727174:123456789:chunk:000001",
+	// 	ChannelID:       "1549045957",
+	// 	LineRequestID:   "2e1d92b8-9e11-4d39-8c1c-2ef0f40934c7",
+	// 	DeliveryCount:   10,
+	// 	UnDeliveryCount: 100,
+	// 	CreatedAt:       time.Now().Unix(),
+	// }
 
-// 	insertResult, err := database.InsertMessage(coll, insertData)
-// 	if err != nil {
-// 		log.Panicln(err)
-// 	}
-// 	fmt.Println(insertResult)
-// }
+	updateData := &database.DeliveryMessage{
+		DeliveryCount:   0,
+		UnDeliveryCount: 0,
+		UpdatedAt:       time.Now().Unix(),
+	}
 
-// func testUpdate(coll *mongo.Collection) {
-// 	updateData := &database.DeliveryMessage{
-// 		DeliveryCount: 50,
-// 		UpdatedAt:     time.Now().Unix(),
-// 	}
+	filter := bson.D{
+		{
+			"requestId", "1552727174:123456789:chunk:000001",
+		},
+	}
 
-// 	filter := bson.D{
-// 		{
-// 			"requestId", "request:1234567",
-// 		},
-// 	}
-
-// 	updateResult, err := database.UpdateMessage(coll, updateData, filter)
-// 	if err != nil {
-// 		log.Panicln(err)
-// 	}
-// 	fmt.Println(updateResult)
-// }
-
-// func testUpsert(coll *mongo.Collection) {
-// 	// updateData := &database.DeliveryMessage{
-// 	// 	DeliveryCount: 1000,
-// 	// 	CreatedAt:     time.Now().Unix(),
-// 	// }
-
-// 	updateData := &database.DeliveryMessage{
-// 		DeliveryCount: 500,
-// 		UpdatedAt:     time.Now().Unix(),
-// 	}
-
-// 	filter := bson.D{
-// 		{
-// 			"requestId", "request:555555",
-// 		},
-// 	}
-
-// 	updateResult, err := database.UpsertMessage(coll, updateData, filter)
-// 	if err != nil {
-// 		log.Panicln(err)
-// 	}
-// 	fmt.Println(updateResult)
-// }
-
-// func testFindOneAndUpsert(coll *mongo.Collection) {
-// 	// updateData := &database.DeliveryMessage{
-// 	// 	RequestID:       "request:555551",
-// 	// 	DeliveryCount:   100,
-// 	// 	UnDeliveryCount: 0,
-// 	// 	CreatedAt:       time.Now().Unix(),
-// 	// }
-
-// 	updateData := &database.DeliveryMessage{
-// 		DeliveryCount: 500,
-// 		UpdatedAt:     time.Now().Unix(),
-// 	}
-
-// 	filter := bson.D{
-// 		{
-// 			"requestId", "request:555551",
-// 		},
-// 	}
-
-// 	updateResult, err := database.FindOneAndUpsert(coll, updateData, filter)
-// 	if err != nil {
-// 		log.Panicln(err)
-// 	}
-
-// 	r, err := updateResult.DecodeBytes()
-// 	if err != nil {
-// 		log.Panicln(err)
-// 	}
-// 	fmt.Println(string(r))
-// }
-
-// func testFindOneAndUpdate(coll *mongo.Collection) {
-// 	// updateData := &database.DeliveryMessage{
-// 	// 	RequestID:       "request:1000",
-// 	// 	DeliveryCount:   100,
-// 	// 	UnDeliveryCount: 0,
-// 	// 	CreatedAt:       time.Now().Unix(),
-// 	// }
-
-// 	updateData := &database.DeliveryMessage{
-// 		DeliveryCount: 1,
-// 		UpdatedAt:     time.Now().Unix(),
-// 	}
-
-// 	filter := bson.D{
-// 		{
-// 			"requestId", "request:1000",
-// 		},
-// 	}
-
-// 	updateResult, err := database.FindOneAndUpdate(coll, updateData, filter)
-// 	if err != nil {
-// 		log.Panicln(err)
-// 	}
-
-// 	r, err := updateResult.DecodeBytes()
-// 	if err != nil {
-// 		log.Panicln(err)
-// 	}
-// 	fmt.Println(string(r))
-// }
+	_, err := msgDB.UpdateMessage(updateData, filter)
+	if err != nil {
+		log.Panicln(err)
+	}
+}
