@@ -2,9 +2,9 @@ package rabbitmq
 
 import (
 	"errors"
+
 	"log"
 
-	"github.com/iamgoangle/rabbitmq-mongodb/internal/empty"
 	amqp "github.com/streadway/amqp"
 )
 
@@ -43,24 +43,34 @@ func QueueDeclare(c ConfigQueue, ch *amqp.Channel) (amqp.Queue, error) {
 			errors.New("[QueueDeclare]: unable to create queue " + err.Error())
 	}
 
-	log.Printf("[QueueDeclare]: new queue %v", c.Name)
+	log.Println("[QueueDeclare]: new queue %v", c.Name)
 	return q, nil
 }
 
 // QueueBind binding my queue with exchange routing
-func QueueBind(config ConfigQueue, ch *amqp.Channel, q amqp.Queue) error {
-	if !empty.StructIsEmpty(config.Bind.ExchangeName) {
-		if err := ch.QueueBind(
-			config.Name,
-			config.Bind.RoutingKey,
-			config.Bind.ExchangeName,
-			config.NoWait,
-			nil,
-		); err != nil {
-			return errors.New("[QueueBind]: unable to queue bind" + err.Error())
-		}
+func QueueBind(config ConfigQueue, ch *amqp.Channel) error {
+	log.Println("config: %+v", config.Bind)
+
+	if err := ch.QueueBind(
+		config.Name,
+		config.Bind.RoutingKey,
+		config.Bind.ExchangeName,
+		config.NoWait,
+		nil,
+	); err != nil {
+		return errors.New("[QueueBind]: unable to queue bind" + err.Error())
 	}
-	log.Println("[QueueBind]: " + config.Bind.RoutingKey)
 
 	return nil
+}
+
+// IsQueueExist checking my queue is already declare in RabbitMQ
+func IsQueueExist(name string, ch *amqp.Channel) bool {
+	var exist bool
+	_, err := ch.QueueInspect(name)
+	if err == nil {
+		exist = true
+	}
+
+	return exist
 }

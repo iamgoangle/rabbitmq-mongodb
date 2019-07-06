@@ -2,6 +2,7 @@ package rabbitmq
 
 import (
 	"errors"
+
 	"log"
 
 	amqp "github.com/streadway/amqp"
@@ -18,18 +19,6 @@ const (
 type Producer interface {
 	// Publish factory method
 	Publish(body []byte) error
-
-	// PublishDirectExchange handles direct with routing key exchange
-	PublishDirectExchange(body []byte) error
-
-	// PublishDefaultExchange handles default send to queue
-	PublishDefaultExchange(body []byte) error
-
-	// PublishFanoutExchange handles fanout exchange pub/sub
-	PublishFanoutExchange(body []byte) error
-
-	// PublishTopicExchange handles matching pattern exchange
-	PublishTopicExchange(body []byte) error
 
 	// Release connection
 	Close()
@@ -51,58 +40,70 @@ type Queue struct {
 	amqp.Queue
 }
 
+type execPublish func(body []byte, p *producer) error
+
 type producer struct {
 	conn   *amqp.Connection
 	ch     *amqp.Channel
 	config ConfigProducer
+
+	execPublish execPublish
 }
 
 // NewProducer amqp producer actor
 func NewProducer(conn *amqp.Connection, config ConfigProducer) (Producer, error) {
+	var execPublish execPublish
+
 	ch, err := conn.Channel()
 	failOnError(err, "Failed to open a channel")
 
 	err = ExchangeDeclare(config.Exchange, ch)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("[NewProducer] unable to declare exchange " + err.Error())
 	}
 
-	// _, err = QueueDeclare(config.Queue, ch)
-	// if err != nil {
-	// 	return nil, err
+	// queueExist := IsQueueExist(config.Queue.Name, ch)
+	// if !queueExist {
+	// 	_, err := QueueDeclare(config.Queue, ch)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+
+	// 	err = QueueBind(config.Queue, ch)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
 	// }
 
-	// err = QueueBind(config.Queue, ch, q)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	switch config.Exchange.Type {
+	case ExchangeDirect:
+		execPublish = PublishDirectExchange
+	case ExchangeFanout:
+		execPublish = PublishFanoutExchange
+	case ExchangeTopic:
+		execPublish = PublishTopicExchange
+	default:
+		execPublish = PublishDefaultExchange
+	}
 
 	return &producer{
-		ch:     ch,
-		config: config,
-		conn:   conn,
+		ch:          ch,
+		config:      config,
+		conn:        conn,
+		execPublish: execPublish,
 	}, nil
 }
 
 // Publish factory method to exchange the message to queue by type
 // TODO: To imrove init exchange type when NewProducer by pointer it to exechange type func
 func (p *producer) Publish(body []byte) error {
-	switch p.config.Exchange.Type {
-	case ExchangeDirect:
-		return p.PublishDirectExchange(body)
-	case ExchangeFanout:
-		return p.PublishFanoutExchange(body)
-	case ExchangeTopic:
-		return p.PublishTopicExchange(body)
-	default:
-		return p.PublishDefaultExchange(body)
-	}
+	return p.execPublish(body, p)
 }
 
 // PublishDirectExchange handles default exchange
 // Direct: A direct exchange delivers messages to queues based on a message routing key.
 // In a direct exchange, the message is routed to the queues whose binding key exactly matches the routing key of the message.
-func (p *producer) PublishDirectExchange(body []byte) error {
+func PublishDirectExchange(body []byte, p *producer) error {
 	err := p.publish(p.config.Exchange.Name, p.config.Exchange.RoutingKey, body)
 	if err != nil {
 		return errors.New("[PublishDirectExchange]: unable to publish a message " + err.Error())
@@ -114,7 +115,7 @@ func (p *producer) PublishDirectExchange(body []byte) error {
 }
 
 // PublishDefaultExchange handles default exchange
-func (p *producer) PublishDefaultExchange(body []byte) error {
+func PublishDefaultExchange(body []byte, p *producer) error {
 	err := p.publish("", p.config.Queue.Name, body)
 	if err != nil {
 		return errors.New("[PublishDefaultExchange]: unable to publish a message " + err.Error())
@@ -126,7 +127,7 @@ func (p *producer) PublishDefaultExchange(body []byte) error {
 }
 
 // PublishFanoutExchange broadcasts all the messages to queue that subscribe my exchange
-func (p *producer) PublishFanoutExchange(body []byte) error {
+func PublishFanoutExchange(body []byte, p *producer) error {
 	err := p.publish(p.config.Exchange.Name, "", body)
 	if err != nil {
 		return errors.New("[PublishFanoutExchange]: unable to publish a message " + err.Error())
@@ -138,7 +139,7 @@ func (p *producer) PublishFanoutExchange(body []byte) error {
 }
 
 // PublishFanoutExchange publish message to queue who set routingKey match my exchange
-func (p *producer) PublishTopicExchange(body []byte) error {
+func PublishTopicExchange(body []byte, p *producer) error {
 	err := p.publish(p.config.Exchange.Name, p.config.Exchange.RoutingKey, body)
 	if err != nil {
 		return errors.New("[PublishTopicExchange]: unable to publish a message " + err.Error())
